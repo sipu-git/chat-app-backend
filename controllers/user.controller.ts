@@ -1,154 +1,207 @@
 import bcrypt from "bcrypt";
 import type { Request, Response } from "express";
-import cloudinary from "../configs/uploadMedias";
-// import { Request, Response } from "express";
-import streamifier from "streamifier";
 import User from "../models/user.model";
-import jwt, { type Jwt, type JwtPayload, type Secret, type SignOptions } from 'jsonwebtoken';
+import jwt, { type JwtPayload } from "jsonwebtoken";
+import { deleteImgaeObject, uploadProfileImage } from "../utils/s3Uploads";
 
 export const registerUser = async (req: Request, res: Response) => {
-    try {
-        const { username, email, phone, password } = req.body;
-        const emailCheck = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-        const phoneCheck = /^[6-9]\d{9}$/;
-        const passwordCheck = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$/;
+  try {
+    const { username, email, phone, password } = req.body;
+    const emailCheck = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    const phoneCheck = /^[6-9]\d{9}$/;
+    const passwordCheck = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$/;
 
-        if (!username || !email || !phone || !password) {
-            return res.status(400).json({ message: "All fields are mandatory!" })
-        }
-        if (!emailCheck.test(email)) {
-            return res.status(401).json({ message: "Invaild email address!" })
-        }
-        if (!phoneCheck.test(phone)) {
-            return res.status(401).json({ messaage: "Invalid phone number!" })
-        }
-        if (!passwordCheck.test(password)) {
-            return res.status(401).json({ message: "Invalid password format!" })
-        }
-
-        const hashedPassword = await bcrypt.hash(password, 10);
-        if (!req.file) {
-            console.log("No file received!");
-            return res.status(400).json({ message: "Profile image is required!" });
-        }
-        console.log("Incoming file details:", req.file);
-        console.log("☁️ Uploading image to Cloudinary...");
-
-        const uploadImage: any = await new Promise((resolve, reject) => {
-            const uploadStream = cloudinary.uploader.upload_stream(
-                { folder: process.env.CLOUDINARY_API_FOLDER || 'chat-web-app' },
-                (error, result) => {
-                    if (error) {
-                        console.error("Cloudinary upload error:", error);
-                        reject(error);
-                    } else {
-                        console.log("Cloudinary upload result:", result);
-                        resolve(result);
-                    }
-                }
-            );
-
-            streamifier.createReadStream(req.file!.buffer).pipe(uploadStream);
-        });
-        const fetchUsers = await User.findOne({ $or: [{ email }, { phone }] });
-        if (fetchUsers) {
-            return res.status(409).json({ message: "User with given email or phone or username already exists!" });
-        }
-        const addUser = await User.create({
-            username,
-            email,
-            phone,
-            profilePic: uploadImage.secure_url,
-            password: hashedPassword,
-        });
-        res.status(201).json({
-            message: "User registered successfully!", user: addUser
-        })
-    } catch (error) {
-        res.status(500).json({ message: "Server error", error });
+    if (!username || !email || !phone || !password) {
+      return res.status(400).json({ message: "All fields are mandatory!" })
     }
+    if (!emailCheck.test(email)) {
+      return res.status(401).json({ message: "Invaild email address!" })
+    }
+    if (!phoneCheck.test(phone)) {
+      return res.status(401).json({ messaage: "Invalid phone number!" })
+    }
+    if (!passwordCheck.test(password)) {
+      return res.status(401).json({ message: "Invalid password format!" })
+    }
+
+    const hashedPassword = await bcrypt.hash(password, 10);
+    const fetchUsers = await User.findOne({ $or: [{ email }, { phone }] });
+    if (fetchUsers) {
+      return res.status(409).json({ message: "User with given email or phone or username already exists!" });
+    }
+    const addUser = await User.create({
+      username,
+      email,
+      phone,
+      password: hashedPassword,
+      provider: "local"
+    });
+    if (req.file) {
+      console.log("Uploading the image to the AWS S3 Bucket...");
+      const fileKey = await uploadProfileImage(req.file, addUser._id.toString())
+      addUser.profilePic = fileKey;
+      await addUser.save()
+      console.log("Image uploaded to S3 with key:", fileKey);
+    }
+
+    return res.status(201).json({
+      message: "User registered successfully!", user: {
+        id: addUser._id,
+        username: addUser.username,
+        email: addUser.email,
+        profilePic: addUser.profilePic,
+      },
+    })
+  } catch (error) {
+    return res.status(500).json({ message: "Server error", error });
+  }
 }
 
 export const loginUser = async (req: Request, res: Response) => {
-    try {
-        const { email, password } = req.body;
+  try {
+    const { email, password } = req.body;
 
-        // Validate fields
-        if (!email || !password) {
-            return res.status(400).json({ message: "All fields are mandatory!" });
-        }
-
-        // Check if user exists
-        const findUser = await User.findOne({ email });
-        if (!findUser) {
-            return res.status(404).json({ message: "User not found!" });
-        }
-
-        // Validate password
-        const isPasswordValid = await bcrypt.compare(password, findUser.password);
-        if (!isPasswordValid) {
-            return res.status(401).json({ message: "Invalid credentials!" });
-        }
-         findUser.lastLogin = new Date();
-        await findUser.save();
-        // Generate JWT Token
-        const token = jwt.sign(
-            {
-                id: findUser._id,
-                email: findUser.email,
-                username: findUser.username,
-                profilePic: findUser.profilePic
-            },
-            process.env.JWT_SECRET || "default_secret",
-            { expiresIn: "1d" }
-        );
-
-        // Optional: Set token cookie
-        res.cookie("authToken", token, {
-            httpOnly: true,
-            secure: false,
-            sameSite: "strict",
-            maxAge: 7 * 24 * 60 * 60 * 1000,
-        });
-
-        // Successful login response
-        return res.status(200).json({
-            message: "Login successful!",
-            token,
-            user: {
-                id: findUser._id,
-                username: findUser.username,
-                email: findUser.email,
-                phone: findUser.phone,
-                profilePic: findUser.profilePic,
-            },
-        });
-    } catch (error) {
-        console.error("Login error:", error);
-        return res.status(500).json({ message: "Server error", error });
+    if (!email || !password) {
+      return res.status(400).json({ message: "All fields are mandatory!" });
     }
+
+    const findUser = await User.findOne({ email });
+    if (findUser?.provider === "google") {
+      return res.status(400).json({ message: "Please login with google" })
+    }
+    if (!findUser) {
+      return res.status(404).json({ message: "User not found!" });
+    }
+    if (!findUser.password) {
+      return res.status(400).json({
+        message: "Password login not available for this account",
+      });
+    }
+
+    const isPasswordValid = await bcrypt.compare(password, findUser.password);
+    if (!isPasswordValid) {
+      return res.status(401).json({ message: "Invalid credentials!" });
+    }
+
+    findUser.isOnline = true;
+    findUser.lastLogin = new Date();
+    await findUser.save();
+
+    const accessToken = jwt.sign(
+      { id: findUser._id },
+      process.env.JWT_SECRET!,
+      { expiresIn: "2h" }
+    );
+
+    const refreshToken = jwt.sign(
+      { id: findUser._id },
+      process.env.JWT_REFRESH_SECRET!,
+      { expiresIn: "30d" }
+    );
+
+    res.cookie("refreshToken", refreshToken, {
+      httpOnly: true,
+      secure: false,
+      sameSite: "lax",
+      maxAge: 30 * 24 * 60 * 60 * 1000
+    });
+
+    return res.status(200).json({
+      message: "Login successful!",
+      accessToken,
+      user: {
+        id: findUser._id,
+        username: findUser.username,
+        email: findUser.email,
+        phone: findUser.phone,
+        isOnline: findUser.isOnline,
+        profilePic: findUser.profilePic,
+      },
+    });
+  } catch (error) {
+    console.error("Login error:", error);
+    return res.status(500).json({ message: "Server error" });
+  }
+};
+
+export const removeProfileImage = async (req: Request, res: Response) => {
+  try {
+    const userId = req.user?.id;
+
+    if (!userId) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    if (!user.profilePic) {
+      return res.status(400).json({ message: "No profile image to remove" });
+    }
+    await deleteImgaeObject(user.profilePic);
+    user.profilePic = undefined;
+    await user.save();
+
+    return res.status(200).json({
+      message: "Profile image removed successfully",
+    });
+  } catch (error) {
+    console.error("Remove profile image error:", error);
+    return res.status(500).json({ message: "Server error" });
+  }
 };
 
 export const viewProfile = async (req: Request, res: Response) => {
-    try {
-        const authHeader = req.headers.authorization;
-        const token = req.cookies?.token || (authHeader && authHeader.split(" ")[1]);
-         const decodedToken = jwt.verify(token, process.env.JWT_SECRET as string) as JwtPayload & { id: string };
-        const fetchUser = await User.findById(decodedToken.id)
-        if (!fetchUser) {
-            return res.status(404).json({ message: "User doesn't exist!" })
-        }
-        return res.status(200).json({
-            message: "User profile fetched successfully!",
-            user: {
-                id: fetchUser._id,
-                username: fetchUser.username,
-                email: fetchUser.email,
-                phone: fetchUser.phone,
-                profilePic: fetchUser.profilePic},
-        });
-    } catch (error) {
-        console.error("Login failed:", error);
-        return res.status(500).json({ message: "Internal server error", error });
+  try {
+    const userId = req.user?.id;
+
+    if (!userId) {
+      return res.status(401).json({ message: "Unauthorized!" })
     }
+    const fetchUser = await User.findById(userId).select(
+      "_id username email phone profilePic isOnline"
+    );
+
+    if (!fetchUser) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    return res.status(200).json({
+      message: "User profile fetched successfully",
+      user: {
+        id: fetchUser._id,
+        username: fetchUser.username,
+        email: fetchUser.email,
+        phone: fetchUser.phone,
+        isOnline: fetchUser.isOnline,
+        profilePic: fetchUser.profilePic,
+      },
+    });
+  } catch (error) {
+    console.error("Profile error:", error);
+    return res.status(500).json({ message: "Internal server error!" });
+  }
+};
+
+
+
+export const fetchUsers = async (req: Request, res: Response) => {
+  try {
+    const findUsers = await User.find({}, {
+      password: 0, _v: 0,
+    }).sort({ isOnline: -1 });
+
+    if (!findUsers || findUsers.length === 0) {
+      return res.status(404).json({ message: "No users found!" })
+    }
+    return res.status(200).json({
+      message: "Users fetched successfully!",
+      users: findUsers
+    })
+  } catch (error) {
+    console.error("Error fetching users:", error);
+    return res.status(500).json({ message: "Internal server error", error });
+  }
 }

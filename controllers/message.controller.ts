@@ -1,30 +1,40 @@
 import type { Request, Response } from "express";
 import Chat from "../models/chat.model";
 import { receiverSocketId } from "../configs/socket";
-import { io } from "../configs/socket"; 
-import type { AuthRequest } from "../middlewares/auth.middleware";
+import { io } from "../configs/socket";
 import type { IUser } from "../models/user.model";
+import User from "../models/user.model";
+import { uploadChatImages } from "../utils/s3Uploads";
 
-export const createChat = async (req: AuthRequest, res: Response) => {
+export const createChat = async (req: Request, res: Response) => {
   try {
-    // user id extracted from verifyToken middleware
     const senderId = req.user?.id;
     if (!senderId) {
       return res.status(401).json({ message: "Unauthorized - No user ID found" });
     }
 
-    const { message } = req.body;
+    const message = req.body?.messaage;
     const { id: receiverId } = req.params;
 
-    if (!message || !receiverId) {
-      return res.status(400).json({ message: "Message & receiverId are required" });
+    if (!receiverId) {
+      return res.status(400).json({ message: "Receiver ID is required" });
     }
 
-    // save the chat
+    if (!message && !req.file) {
+      return res.status(400).json({ message: "Message or image is required" });
+    }
+
+    let mediaKey: string | undefined;
+    if (req.file) {
+      mediaKey = await uploadChatImages(req.file, senderId)
+    }
+
     const newChat = await Chat.create({
       senderId,
       receiverId,
-      message,
+      message: message || null,
+      mediaKey: mediaKey || null,
+      mediaType: mediaKey ? "image" : null,
       status: "sent",
     });
 
@@ -47,40 +57,60 @@ export const createChat = async (req: AuthRequest, res: Response) => {
 };
 
 
-export const getChats = async (req: AuthRequest, res: Response) => {
+export const getChats = async (req: Request, res: Response) => {
   try {
     const userId = req.user?.id;
     if (!userId) {
-      return res.status(401).json({ message: "Unauthorized - No user ID found" });
+      return res.status(401).json({ message: "Unauthorized" });
     }
 
     const { id: receiverId } = req.params;
+    if (!receiverId) {
+      return res.status(400).json({ message: "Receiver ID is required" });
+    }
 
-    const findChats = await Chat.find({
+    const chats = await Chat.find({
       $or: [
         { senderId: userId, receiverId },
         { senderId: receiverId, receiverId: userId },
       ],
     })
-      .populate<{ senderId: IUser }>("senderId", "isOnline username profilePic")
-      .populate<{ receiverId: IUser }>("receiverId", "isOnline username profilePic")
+      .populate<{ senderId: IUser }>("senderId", "username profilePic isOnline")
+      .populate<{ receiverId: IUser }>("receiverId", "username profilePic isOnline")
       .sort({ createdAt: 1 });
 
-    if (!findChats || findChats.length === 0) {
-      return res.status(404).json({ message: "No chats found" });
-    }
+    const formattedChats = chats.map((chat) => {
+      const sender = chat.senderId as IUser;
+      const receiver = chat.receiverId as IUser;
 
-    // Format response
-    const formattedChats = findChats.map((chat) => ({
-      _id: chat._id,
-      message: chat.message,
-      isRead: chat.isRead,
-      timestamps: chat.timestamps,
-      senderId: chat.senderId,
-      receiverId: chat.receiverId,
-      senderOnline: (chat.senderId as IUser).isOnline ?? false,
-      receiverOnline: (chat.receiverId as IUser).isOnline ?? false,
-    }));
+      const otherUser =
+        sender._id.toString() === userId ? receiver : sender;
+
+      return {
+        _id: chat._id,
+        message: chat.message,
+        mediaKey: chat.mediaKey,
+        mediaType: chat.mediaType,
+        isRead: chat.isRead,
+        status: chat.status,
+        createdAt: chat.createdAt,
+        updatedAt: chat.updatedAt,
+
+        sender: {
+          id: sender._id,
+          username: sender.username,
+          profilePic: sender.profilePic,
+        },
+
+        receiver: {
+          id: receiver._id,
+          username: receiver.username,
+          profilePic: receiver.profilePic,
+        },
+
+        isOtherUserOnline: otherUser.isOnline ?? false,
+      };
+    });
 
     return res.status(200).json({ chats: formattedChats });
   } catch (error) {
@@ -88,3 +118,53 @@ export const getChats = async (req: AuthRequest, res: Response) => {
     return res.status(500).json({ message: "Internal server error" });
   }
 };
+
+export const searchApi = async (req: Request, res: Response) => {
+  try {
+    const userId = req.user?.id;
+    const query = req.query.q as string;
+
+    if (!userId) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+
+    if (!query || !query.trim()) {
+      return res.status(200).json({
+        users: [],
+        messages: [],
+      });
+    }
+
+    const users = await User.find({
+      _id: { $ne: userId },
+      username: { $regex: query, $options: "i" },
+    }).select("_id username profilePic isOnline lastSeen");
+
+    const messages = await Chat.find({
+      $and: [
+        {
+          $or: [
+            { senderId: userId },
+            { receiverId: userId },
+          ],
+        },
+        {
+          message: { $regex: query, $options: "i" },
+        },
+      ],
+    })
+      .populate("senderId", "username profilePic")
+      .populate("receiverId", "username profilePic")
+      .sort({ createdAt: -1 })
+      .limit(20);
+
+    return res.status(200).json({
+      users,
+      messages,
+    });
+  } catch (error) {
+    console.error("Search error:", error);
+    return res.status(500).json({ message: "Internal server error" });
+  }
+};
+

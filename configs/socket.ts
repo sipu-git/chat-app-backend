@@ -1,79 +1,93 @@
 import { Server } from "socket.io";
-import http from "http";
-import express from "express";
+import jwt from "jsonwebtoken";
+import User from "../models/user.model";
 import Chat from "../models/chat.model";
 
-const app = express();
-const server = http.createServer(app);
+let io: Server;
 
-// Create Socket.IO instance
-const io = new Server(server, {
-  cors: {
-    origin: "*",
-    methods: ["GET", "POST"],
-  },
-});
+const userSockets: Record<string, Set<string>> = {};
 
-// Store userId → socketId
-const userSockets: Record<string, string> = {};
-
-// Helper function to get socketId of a user
-export function receiverSocketId(userId: string) {
-  return userSockets[userId];
+export function receiverSocketId(userId: string): string[] {
+  return userSockets[userId]
+    ? Array.from(userSockets[userId])
+    : [];
 }
 
-// New user connection
-io.on("connection", (socket) => {
-  console.log("New User connected:", socket.id);
+export const initSocket = (server: any) => {
+  io = new Server(server, {
+    cors: {
+      origin: "http://localhost:3000",
+      credentials: true,
+    },
+  });
 
-  // Get userId from handshake query
-  const rawId = socket.handshake.query.userId;
-  const userId = typeof rawId === "string" ? rawId : undefined;
-
-  if (userId) {
-    userSockets[userId] = socket.id;
-  }
-
-  // Send active users list
-  io.emit("getActiveUsers", Object.keys(userSockets));
-
-  socket.on("sendMessage", async (msg) => {
+  io.use((socket, next) => {
     try {
-      let savedMsg = await Chat.create({
-        ...msg,
+      const token = socket.handshake.auth.token;
+      const decoded = jwt.verify(
+        token,
+        process.env.JWT_SECRET as string
+      ) as { id: string };
+
+      socket.data.userId = decoded.id;
+      next();
+    } catch {
+      next(new Error("Unauthorized"));
+    }
+  });
+
+  io.on("connection", async (socket) => {
+    const userId = socket.data.userId;
+
+    if (!userSockets[userId]) userSockets[userId] = new Set();
+    userSockets[userId].add(socket.id);
+
+    await User.findByIdAndUpdate(userId, { isOnline: true });
+
+    socket.on("sendMessage", async (msg) => {
+      const savedMsg = await Chat.create({
+        senderId: userId,
+        receiverId: msg.receiverId,
+        message: msg.message,
         status: "sent",
       });
 
-      const receiverSocket = userSockets[msg.receiverId];
-      const senderSocket = userSockets[msg.senderId];
-
-      if (receiverSocket) {
+      const receiverSockets = userSockets[msg.receiverId];
+      if (receiverSockets) {
         savedMsg.status = "delivered";
         await savedMsg.save();
 
-        io.to(receiverSocket).emit("newMessage", savedMsg);
-        if (senderSocket) {
-          io.to(senderSocket).emit("messageDelivered", savedMsg);
-        }
-      } else {
-        if (senderSocket) {
-          io.to(senderSocket).emit("newMessage", savedMsg);
-        }
+        receiverSockets.forEach((sid) => {
+          io.to(sid).emit("newMessage", savedMsg);
+        });
       }
-    } catch (error) {
-      console.error("Error saving message:", error);
-    }
+    });
+
+    socket.on("messageSeen", async ({ senderId }) => {
+      await Chat.updateMany(
+        { senderId, receiverId: userId },
+        { status: "seen", isRead: true }
+      );
+
+      const senderSockets = userSockets[senderId];
+      senderSockets?.forEach((sid) => {
+        io.to(sid).emit("messagesSeen", { receiverId: userId });
+      });
+    });
+
+    socket.on("disconnect", async () => {
+      userSockets[userId]?.delete(socket.id);
+      if (userSockets[userId]?.size === 0) {
+        delete userSockets[userId];
+        await User.findByIdAndUpdate(userId, {
+          isOnline: false,
+          lastSeen: new Date(),
+        });
+      }
+    });
   });
 
-  socket.on("disconnect", () => {
-    console.log("User disconnected:", socket.id);
+  return io;
+};
 
-    if (userId) {
-      delete userSockets[userId];
-    }
-
-    io.emit("getActiveUsers", Object.keys(userSockets));
-  });
-});
-
-export { io, server, app };
+export { io };
