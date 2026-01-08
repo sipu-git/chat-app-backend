@@ -9,7 +9,7 @@ passport.use(
         {
             clientID: process.env.GOOGLE_CLIENT_ID!,
             clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
-            callbackURL: "http://ec2-13-233-23-20.ap-south-1.compute.amazonaws.com:4000/api/auth/google",
+            callbackURL: "http://ec2-13-233-23-20.ap-south-1.compute.amazonaws.com:4000/api/auth/google/callback",
         },
         async (_accessToken, _refreshToken, profile, done) => {
             try {
