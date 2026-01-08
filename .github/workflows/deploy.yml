@@ -33,6 +33,6 @@ jobs:
             cd ~/chat-app-backend
             git pull origin main
             ~/.bun/bin/bun install
-            pm2 restart chat-backend || pm2 start index.ts --name chat-backend
+            pm2 restart chat-backend || pm2 start index.ts --name chat-backend --interpreter /home/ubuntu/.bun/bin/bun
             pm2 save
           EOF
