@@ -18,7 +18,7 @@ export const viewImage = async (req: Request, res: Response) => {
   } catch (error) {
     console.error("S3 view error:", error);
     return res.status(500).json({
-      message: "Failed to generate view URL",
+      message: "Failed to generate view URL due to technical issue!",
     });
   }
 };
