@@ -10,19 +10,29 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      # Checkout repository
       - name: Checkout code
         uses: actions/checkout@v4
 
+      # Setup SSH (safe & reliable)
       - name: Setup SSH
         run: |
           mkdir -p ~/.ssh
-          echo "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/id_ed25519
+          printf "%s" "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/id_ed25519
           chmod 600 ~/.ssh/id_ed25519
-          ssh-keyscan -H ${{ secrets.AWS_EC2_HOST }} >> ~/.ssh/known_hosts
 
+      # Test SSH connection (fail fast)
+      - name: Test SSH connection
+        run: |
+          ssh -o StrictHostKeyChecking=no \
+              ${{ secrets.EC2_USER }}@${{ secrets.AWS_EC2_HOST }} "echo SSH_CONNECTED"
+
+      # Deploy to EC2
       - name: Deploy on EC2
         run: |
-          ssh ${{ secrets.EC2_USER }}@${{ secrets.AWS_EC2_HOST }} << 'EOF'
+          ssh -o StrictHostKeyChecking=no \
+              ${{ secrets.EC2_USER }}@${{ secrets.AWS_EC2_HOST }} << 'EOF'
+            set -e
             cd ~/chat-app-backend
             git pull origin main
             bun install
