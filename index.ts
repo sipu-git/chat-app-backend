@@ -14,7 +14,7 @@ const app = express();
 const server = http.createServer(app);
 
 app.use(cors({
-    origin: ['http://ec2-13-233-23-20.ap-south-1.compute.amazonaws.com', 'https://chat-app-frontend-sooty-six.vercel.app'],
+    origin: ['http://localhost:3000','http://ec2-13-233-23-20.ap-south-1.compute.amazonaws.com', 'https://chat-app-frontend-sooty-six.vercel.app'],
     credentials: true,
     methods: ["GET", "POST", "PUT", "DELETE"]
 }));
