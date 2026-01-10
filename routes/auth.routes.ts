@@ -18,7 +18,7 @@ router.get(
   "/google/callback",
   passport.authenticate("google", {
     session: false,
-    failureRedirect: `https://chat-app-frontend-sooty-six.vercel.app/login`,
+    failureRedirect: `http://localhost:3000/login`,
   }),
   (req: Request, res: Response) => {
     const user = req.user as unknown as IUser;
@@ -30,7 +30,7 @@ router.get(
     );
 
     return res.redirect(
-      `https://chat-app-frontend-sooty-six.vercel.app/auth/callback?token=${accessToken}`
+      `http://localhost:3000/auth/callback?token=${accessToken}`
     );
   }
 );
