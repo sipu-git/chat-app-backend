@@ -21,7 +21,7 @@ export const createChat = async (req: Request, res: Response) => {
     }
 
     if (!message) {
-      return res.status(400).json({ message: "Message or image is required" });
+      return res.status(400).json({ message: "Message is required" });
     }
 
     let mediaKey: string | undefined;
