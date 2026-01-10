@@ -15,10 +15,15 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Setup SSH
-        run: |
-          mkdir -p ~/.ssh
-          echo "${{ secrets.EC2_SSH_KEY_B64 }}" | base64 -d > ~/.ssh/id_ed25519
-          chmod 600 ~/.ssh/id_ed25519
+  run: |
+    mkdir -p ~/.ssh
+    cat > ~/.ssh/id_rsa << 'EOF'
+    -----BEGIN RSA PRIVATE KEY-----
+    ${{ secrets.EC2_SSH_KEY_B64 }}
+    -----END RSA PRIVATE KEY-----
+    EOF
+    chmod 600 ~/.ssh/id_rsa
+
 
       - name: Test SSH
         run: |
