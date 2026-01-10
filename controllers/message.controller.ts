@@ -20,7 +20,7 @@ export const createChat = async (req: Request, res: Response) => {
       return res.status(400).json({ message: "Receiver ID is required" });
     }
 
-    if (!message && !req.file) {
+    if (!message) {
       return res.status(400).json({ message: "Message or image is required" });
     }
 
