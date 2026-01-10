@@ -28,6 +28,8 @@ connectDB();
 app.use('/api/users', userRoutes);
 app.use('/api/auth', authRoutes);
 app.use('/api/chats', chatRoutes)
-const PORT = process.env.PORT || 4000;
+const PORT = Number(process.env.PORT) || 4000;
 initSocket(server)
-server.listen(PORT, () => console.log(`Server and socket running on ${PORT}`));
+server.listen(PORT, "0.0.0.0", () => {
+  console.log(`Server and socket running on port ${PORT}`);
+});
