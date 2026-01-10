@@ -13,7 +13,7 @@ export const createChat = async (req: Request, res: Response) => {
       return res.status(401).json({ message: "Unauthorized - No user ID found" });
     }
 
-    const message = req.body?.messaage;
+    const message = req.body?.message;
     const { id: receiverId } = req.params;
 
     if (!receiverId) {
