@@ -5,6 +5,7 @@ import { io } from "../configs/socket";
 import type { IUser } from "../models/user.model";
 import User from "../models/user.model";
 import { uploadChatImages } from "../utils/s3Uploads";
+import mongoose from "mongoose";
 
 export const createChat = async (req: Request, res: Response) => {
   try {
@@ -168,3 +169,75 @@ export const searchApi = async (req: Request, res: Response) => {
   }
 };
 
+export const getRecentChats = async (req: Request, res: Response) => {
+  try {
+    const userId = req.user?.id;
+    if (!userId) {
+      return res.status(401).json({ message: "Unauthorized!" })
+    }
+    const objectUserId = new mongoose.Types.ObjectId(userId);
+    const findChats = await Chat.aggregate([
+      {
+        $match: {
+          $or: [
+            { senderId: objectUserId },
+            { receiverId: objectUserId }
+          ]
+        }
+      },
+      {
+        $addFields: {
+          otherUser: {
+            $cond: [
+              { $eq: ["$senderId", objectUserId] },
+              "$receiverId",
+              "$senderId",
+            ],
+          },
+        },
+      },
+      { $sort: { createdAt: -1 } },
+      {
+        $group: {
+          _id: "$otherUser",
+          lastMessage: { $first: "$message" },
+          mediaKey: { $first: "$mediaKey" },
+          mediaType: { $first: "$mediaType" },
+          status: { $first: "$status" },
+          isRead: { $first: "$isRead" },
+          createdAt: { $first: "$createdAt" },
+        },
+      },
+      {
+        $lookup: {
+          from: "users",
+          localField: "_id",
+          foreignField: "_id",
+          as: "user",
+        },
+      },
+      { $unwind: "$user" },
+      {
+        $project: {
+          _id: 0,
+          userId: "$user._id",
+          username: "$user.username",
+          profilePic: "$user.profilePic",
+          isOnline: "$user.isOnline",
+          lastSeen: "$user.lastSeen",
+          lastMessage: 1,
+          mediaKey: 1,
+          mediaType: 1,
+          status: 1,
+          isRead: 1,
+          createdAt: 1,
+        },
+      },
+      { $sort: { createdAt: -1 } },
+    ])
+    return res.status(200).json({ findChats });
+  } catch (error) {
+    console.error("Sidebar chat error:", error);
+    return res.status(500).json({ message: "Internal server error" });
+  }
+}
