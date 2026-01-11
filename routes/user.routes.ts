@@ -14,7 +14,7 @@ router.post("/loginUser", loginUser);
 router.post("/refresh-token", refreshToken);
 router.get("/view-image",viewImage);
 router.get("/get-users", fetchUsers);
-router.get("/viewProfileById/:id",viewProfileById)
+router.get("/viewProfileById/:id",verifyToken,viewProfileById)
 router.get("/viewProfile",verifyToken,viewProfile);
 router.delete("/delete-profile",verifyToken,removeProfileImage);
 export default router;
