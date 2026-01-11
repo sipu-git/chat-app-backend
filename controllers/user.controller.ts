@@ -185,7 +185,20 @@ export const viewProfile = async (req: Request, res: Response) => {
   }
 };
 
-
+export const viewProfileById = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const findUser = await User.findById(id).select(
+      "_id username email phone profilePic isOnline"
+    )
+    if (!findUser) {
+      return res.status(404).json({ message: "User not found" });
+    }
+    return res.status(200).json({ findUser });
+  } catch (error) {
+    return res.status(500).json({ message: "Server error" });
+  }
+}
 
 export const fetchUsers = async (req: Request, res: Response) => {
   try {
