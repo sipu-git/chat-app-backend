@@ -2,7 +2,7 @@ import bcrypt from "bcrypt";
 import type { Request, Response } from "express";
 import User from "../models/user.model";
 import jwt, { type JwtPayload } from "jsonwebtoken";
-import { deleteImgaeObject, uploadProfileImage } from "../utils/s3Uploads";
+import { deleteImageObject, uploadProfileImage } from "./media.controller";
 
 export const registerUser = async (req: Request, res: Response) => {
   try {
@@ -140,7 +140,7 @@ export const removeProfileImage = async (req: Request, res: Response) => {
     if (!user.profilePic) {
       return res.status(400).json({ message: "No profile image to remove" });
     }
-    await deleteImgaeObject(user.profilePic);
+    await deleteImageObject(user.profilePic);
     user.profilePic = undefined;
     await user.save();
 
