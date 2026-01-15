@@ -6,6 +6,7 @@ export interface IUser {
   email: string;
   phone: string;
   profilePic?: string;
+  description: string;
   isOnline: boolean;
   lastSeen?: Date;
   password: string;
@@ -25,6 +26,9 @@ const userSchema = new mongoose.Schema<IUser>(
       }
     },
     profilePic: { type: String, trim: true, default: "", required: false },
+    description: {
+      type: String, required: false, default: "Hii! I am using Quick Chat"
+    },
     isOnline: { type: Boolean, default: false },
     lastSeen: { type: Date, default: Date.now },
     password: {

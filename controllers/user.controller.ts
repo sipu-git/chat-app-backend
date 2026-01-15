@@ -6,7 +6,7 @@ import { deleteImageObject, uploadProfileImage } from "./media.controller";
 
 export const registerUser = async (req: Request, res: Response) => {
   try {
-    const { username, email, phone, password } = req.body;
+    const { username, email, phone, password, description } = req.body;
     const emailCheck = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     const phoneCheck = /^[6-9]\d{9}$/;
     const passwordCheck = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$/;
@@ -33,6 +33,7 @@ export const registerUser = async (req: Request, res: Response) => {
       username,
       email,
       phone,
+      description,
       password: hashedPassword,
       provider: "local"
     });
@@ -47,6 +48,7 @@ export const registerUser = async (req: Request, res: Response) => {
     return res.status(201).json({
       message: "User registered successfully!", user: {
         id: addUser._id,
+        description: addUser.description,
         username: addUser.username,
         email: addUser.email,
         profilePic: addUser.profilePic,
@@ -113,6 +115,7 @@ export const loginUser = async (req: Request, res: Response) => {
         id: findUser._id,
         username: findUser.username,
         email: findUser.email,
+        description: findUser.description,
         phone: findUser.phone,
         isOnline: findUser.isOnline,
         profilePic: findUser.profilePic,
