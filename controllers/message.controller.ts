@@ -4,8 +4,8 @@ import { receiverSocketId } from "../configs/socket";
 import { io } from "../configs/socket";
 import type { IUser } from "../models/user.model";
 import User from "../models/user.model";
-import { uploadChatImages } from "../utils/s3Uploads";
 import mongoose from "mongoose";
+import { uploadChatImages } from "./media.controller";
 
 export const createChat = async (req: Request, res: Response) => {
   try {
